@@ -1,31 +1,74 @@
-// todo 저장소 관련
-// [x] localStorage에 데이터를 저장한다.
-// [x] 메뉴를 추가할 때
-// [x] 메뉴를 수정할 때
-// [x] 메뉴를 삭제할 때
-// [x] localStorage에서 데이터를 읽어온다. -> 새로고침시에도 남아있게
+// todo web server 구동하기
+// [x] 링크에 있는 웹 서버 저장소를 clone하고 로컬에서 웹 서버를 실행시킨다.
 
-// todo 카테고리별 메뉴판 관리
-// [x] 에스프레소 메뉴판 관리
-// [x] 프라푸치노 메뉴판 관리
-// [x] 블렌디드 메뉴판 관리
-// [x] 티바나 메뉴판 관리
-// [x] 디저트 메뉴판 관리
+// todo 웹 서버 요청 부분
+// [x] 서버에 새로운 메뉴명이 추가될 수 있도록 요청
+// [x] 카테고리별 메뉴리스트 불러오는 요청
+// [x] 서버에 메뉴 이름 수정하는 요청
+// [x] 서버에 메뉴 품절 상태를 토글될 수 있도록 요청
+// [x] 서버에 메뉴 삭제하는 요청
 
-// todo 페이지 접근시 최초 데이터 read & rendering
-// [x] 페이지에 최초로 접근할 때 localstorage에서 에스프레소 메뉴 data를 불러온다.
-// [x] 블러온 데이터를 가지고 화면에 에스프레소 메뉴를 그려준다.
+// todo 리팩터링
+// [] localStorage에 저장하는 로직은 지운다.
+// [] fetch 비동기 api를 사용하는 부분을 async await을 사용하여 구현한다.
 
-// todo 품절상태 관리
-// [x] 품절 상품에 품절 버튼을 추가한다.
-// [x] 품절 버튼을 클릭시 '품절입니다' alert 표시
-// [x] sold-out class를 추가하여 상태를 변경한다.
+// todo 사용자 경험
+// [] API 통신이 실패하는 경우에, alert으로 예외처리를 진행한다.
+// [] 중복되는 메뉴는 추가할 수 없다.
 
 import { $ } from './utils/dom.js';
-import store from './store/index.js';
+
+const BASE_URL = 'http://localhost:3000/api';
+
+const MenuApi = {
+  async getAllMenuByCategory(category) {
+    const response = await fetch(`${BASE_URL}/category/${category}/menu`);
+    return response.json();
+  },
+  async createMenu(category, name) {
+    const response = await fetch(`${BASE_URL}/category/${category}/menu`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ name }),
+    });
+    if (!response.ok) {
+      console.error('에러가 발생했습니다.');
+    }
+  },
+  async updateMenu(category, name, menuId) {
+    const response = await fetch(`${BASE_URL}/category/${category}/menu/${menuId}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ name }),
+    });
+    if (!response.ok) {
+      console.error('에러가 발생했습니다.');
+    }
+    return response.json();
+  },
+  async toggleSoldOutMenu(category, menuId) {
+    const response = await fetch(`${BASE_URL}/category/${category}/menu/${menuId}/soldout`, {
+      method: 'PUT',
+    });
+    if (!response.ok) {
+      console.error('에러가 발생했습니다.');
+    }
+  },
+  async deleteMenu(category, menuId) {
+    const response = await fetch(`${BASE_URL}/category/${category}/menu/${menuId}`, {
+      method: 'DELETE',
+    });
+    if (!response.ok) {
+      console.error('에러가 발생했습니다.');
+    }
+  },
+};
 
 function App() {
-  // 상태는 변하는 데이터
   this.menu = {
     espresso: [],
     frappuccino: [],
@@ -34,19 +77,17 @@ function App() {
     desert: [],
   };
   this.currentCategory = 'espresso';
-  this.init = () => {
-    if (store.getLocalStorage()) {
-      this.menu = store.getLocalStorage();
-    }
+  this.init = async () => {
+    this.menu[this.currentCategory] = await MenuApi.getAllMenuByCategory(this.currentCategory);
     render();
     initEventListeners();
   };
 
   const render = () => {
     const template = this.menu[this.currentCategory]
-      .map((item, index) => {
-        return `<li data-menu-id='${index}' class="menu-list-item d-flex items-center py-2">
-      <span class="w-100 pl-2 menu-name ${item.soldOut ? 'sold-out' : ''}">${item.name}</span>
+      .map((item) => {
+        return `<li data-menu-id='${item.id}' class="menu-list-item d-flex items-center py-2">
+      <span class="w-100 pl-2 menu-name ${item.isSoldOut ? 'sold-out' : ''}">${item.name}</span>
       <button
         type="button"
         class="bg-gray-50 text-gray-500 text-sm mr-1 menu-sold-out-button"
@@ -78,40 +119,40 @@ function App() {
     $('.menu-count').innerText = `총 ${menuCount}개`;
   };
 
-  const addMenuName = () => {
+  const addMenuName = async () => {
     if ($('#menu-name').value === '') {
       alert('메시지를 입력해 주세요');
       return;
     }
-    const MenuName = $('#menu-name').value;
-    this.menu[this.currentCategory].push({ name: MenuName });
-    store.setLocalStorage(this.menu);
+    const menuName = $('#menu-name').value;
+    await MenuApi.createMenu(this.currentCategory, menuName);
+    this.menu[this.currentCategory] = await MenuApi.getAllMenuByCategory(this.currentCategory);
     render();
     $('#menu-name').value = '';
   };
 
-  const updateMenuName = (e) => {
+  const updateMenuName = async (e) => {
     const menuId = e.target.closest('li').dataset.menuId;
     const $menuName = e.target.closest('li').querySelector('.menu-name');
     const updatedMenuName = prompt('메뉴명을 수정하세요', $menuName.innerText);
-    this.menu[this.currentCategory][menuId].name = updatedMenuName;
-    store.setLocalStorage(this.menu);
+    await MenuApi.updateMenu(this.currentCategory, updatedMenuName, menuId);
+    this.menu[this.currentCategory] = await MenuApi.getAllMenuByCategory(this.currentCategory);
     render();
   };
 
-  const removeMenuName = (e) => {
+  const removeMenuName = async (e) => {
     if (confirm('정말 삭제하시겠습니까?')) {
       const menuId = e.target.closest('li').dataset.menuId;
-      this.menu[this.currentCategory].splice(menuId, 1);
-      store.setLocalStorage(this.menu);
+      await MenuApi.deleteMenu(this.currentCategory, menuId);
+      this.menu[this.currentCategory] = await MenuApi.getAllMenuByCategory(this.currentCategory);
       render();
     }
   };
 
-  const soldOutMenu = (e) => {
+  const soldOutMenu = async (e) => {
     const menuId = e.target.closest('li').dataset.menuId;
-    this.menu[this.currentCategory][menuId].soldOut = !this.menu[this.currentCategory][menuId].soldOut;
-    store.setLocalStorage(this.menu);
+    await MenuApi.toggleSoldOutMenu(this.currentCategory, menuId);
+    this.menu[this.currentCategory] = await MenuApi.getAllMenuByCategory(this.currentCategory);
     render();
   };
 
@@ -144,18 +185,18 @@ function App() {
       addMenuName();
     });
 
-    $('nav').addEventListener('click', (e) => {
+    $('nav').addEventListener('click', async (e) => {
       const isCategoryButton = e.target.classList.contains('cafe-category-name');
       if (isCategoryButton) {
         const categoryName = e.target.dataset.categoryName;
         this.currentCategory = categoryName;
         $('#category-title').innerText = `${e.target.innerText} 메뉴 관리`;
+        this.menu[this.currentCategory] = await MenuApi.getAllMenuByCategory(this.currentCategory);
         render();
       }
     });
   };
 }
-// new App()을 사용하면 새로운 객체를 여러개 만들 수 있다..!
-// app이 하나의 인스턴스가 됨, App()은 계속 재사용됨
-const app = new App(); //여기서 App(); 이렇게 실행하면 this가 undefined가 됨
+
+const app = new App();
 app.init();
